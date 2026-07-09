@@ -1,0 +1,244 @@
+/* Sunlight Tracker overlay for LUN.ua — all rules scoped under .slt-root. */
+
+.slt-root {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  pointer-events: none;
+  font-family: system-ui, sans-serif;
+}
+
+.slt-root *,
+.slt-root *::before,
+.slt-root *::after {
+  box-sizing: border-box;
+}
+
+.slt-sun-beams {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.slt-sun-beam {
+  stroke-width: 4;
+  stroke-linecap: round;
+  transition: stroke 0.3s ease-out;
+}
+
+.slt-sun-beam.slt-blocked {
+  stroke: #6b7280;
+  stroke-dasharray: 6 5;
+}
+
+.slt-compass {
+  position: absolute;
+  bottom: 108px;
+  left: 10px;
+  z-index: 2;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: white;
+  color: #1e293b;
+  border: 2px solid rgba(0, 0, 0, 0.2);
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
+
+.slt-controls {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  z-index: 2;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-width: calc(100% - 24px);
+  padding: 0.6rem 1rem 1.4rem;
+  background: rgba(30, 41, 59, 0.92);
+  color: white;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  pointer-events: auto;
+}
+
+.slt-status-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 16px;
+}
+
+.slt-status {
+  font-size: 0.8rem;
+  opacity: 0.85;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.slt-status.slt-sun-down {
+  animation: slt-flash-text 1.6s ease-in-out infinite;
+}
+
+@keyframes slt-flash-text {
+  0%,
+  100% {
+    opacity: 0.85;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.slt-spinner {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-top-color: white;
+  border-radius: 50%;
+  opacity: 0;
+  animation: slt-spin 0.8s linear infinite;
+}
+
+.slt-spinner.slt-visible {
+  opacity: 1;
+}
+
+@keyframes slt-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.slt-inputs-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.85rem;
+}
+
+.slt-date {
+  font: inherit;
+  font-size: 0.8rem;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 5px;
+  padding: 0.1rem 0.3rem;
+  color-scheme: dark;
+}
+
+.slt-play {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  color: white;
+  cursor: pointer;
+}
+
+.slt-play:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.slt-pause-icon {
+  display: none;
+}
+
+.slt-play.slt-playing .slt-play-icon {
+  display: none;
+}
+
+.slt-play.slt-playing .slt-pause-icon {
+  display: block;
+}
+
+.slt-slider-wrap {
+  position: relative;
+  width: 200px;
+}
+
+.slt-hour {
+  width: 200px;
+  height: 20px;
+  display: block;
+  margin: 0;
+  cursor: pointer;
+}
+
+/* Markers sit just below the slider track; the panel reserves room for them
+   via its own bottom padding. */
+.slt-noon-marker {
+  position: absolute;
+  top: 22px;
+  left: 50%;
+  width: 16px;
+  height: 14px;
+  transform: translateX(-50%);
+  cursor: pointer;
+}
+
+.slt-noon-marker::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-bottom: 7px solid #f5a300;
+  transform: translateX(-50%);
+}
+
+.slt-noon-marker:hover::after {
+  border-bottom-color: #ffdd66;
+}
+
+.slt-time-icon {
+  position: absolute;
+  top: 22px;
+  transform: translateX(-50%);
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  line-height: 0;
+}
+
+.slt-time-icon svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.slt-time-icon:hover {
+  filter: brightness(1.2);
+}
+
+.slt-hour-value {
+  font-variant-numeric: tabular-nums;
+}
+
+.slt-tz {
+  opacity: 0.75;
+  font-size: 0.75rem;
+}

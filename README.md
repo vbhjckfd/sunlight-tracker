@@ -25,6 +25,15 @@ See where the sun is, right now (or any date/time you pick), for any spot on the
 - [SunCalc](https://github.com/mourner/suncalc) for sun position and rise/set/noon times
 - OpenStreetMap tiles
 
+## 🧩 Chrome extension for LUN.ua
+
+The same sun tracking, overlaid on the map of any residential-complex page on
+[lun.ua](https://lun.ua) — beams, day playback, and a "sun blocked by a
+neighboring building" check while you apartment-hunt. See
+[`extension/README.md`](extension/README.md) for screenshots and install steps.
+
+![Sun beams over a LUN.ua complex map with the extension's control bar](docs/extension-morning.png)
+
 ## 🚀 Getting started
 
 This project targets the Node version pinned in [`.nvmrc`](.nvmrc).
