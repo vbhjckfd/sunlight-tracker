@@ -99,6 +99,21 @@ body {
   font-size: 0.9rem;
 }
 
+#github-link {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: white;
+  opacity: 0.75;
+  text-decoration: none;
+  font-size: 0.85rem;
+  transition: opacity 0.15s ease-out;
+}
+
+#github-link:hover {
+  opacity: 1;
+}
+
 #slider-wrap {
   position: relative;
   width: 220px;
