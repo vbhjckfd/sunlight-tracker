@@ -2,6 +2,9 @@ import "leaflet/dist/leaflet.css";
 import "./style.css";
 import * as L from "leaflet";
 import { getSunPosition, getSunTimes } from "./sunPosition.ts";
+import { resolveTimeZone, wallTimeToUtc, utcToZonedMinutesOfDay, formatUtcOffsetLabel, formatZonedDateInput } from "./timezone.ts";
+import { createPlayback } from "./playback.ts";
+import { scheduleBuildingFetch, getCachedBuildings, findObstruction, type Building } from "./buildingShadows.ts";
 
 const mapEl = document.querySelector<HTMLDivElement>("#map")!;
 const sunBeamsSvg = document.querySelector<SVGSVGElement>("#sun-beams")!;
@@ -9,7 +12,10 @@ const statusEl = document.querySelector<HTMLDivElement>("#status")!;
 const datePicker = document.querySelector<HTMLInputElement>("#date-picker")!;
 const hourPicker = document.querySelector<HTMLInputElement>("#hour-picker")!;
 const hourValue = document.querySelector<HTMLSpanElement>("#hour-value")!;
+const tzLabel = document.querySelector<HTMLSpanElement>("#tz-label")!;
 const locateBtn = document.querySelector<HTMLButtonElement>("#locate-btn")!;
+const playBtn = document.querySelector<HTMLButtonElement>("#play-btn")!;
+const copyLinkBtn = document.querySelector<HTMLButtonElement>("#copy-link-btn")!;
 const solarNoonMarker = document.querySelector<HTMLDivElement>("#solar-noon-marker")!;
 const sunriseMarker = document.querySelector<HTMLButtonElement>("#sunrise-marker")!;
 const sunsetMarker = document.querySelector<HTMLButtonElement>("#sunset-marker")!;
@@ -35,15 +41,34 @@ function centerFromQuery(): L.LatLngTuple | null {
   return isValidLatLng(lat, lng) ? [lat, lng] : null;
 }
 
-function centerFromStorage(): L.LatLngTuple | null {
+interface StoredView {
+  lat: number;
+  lng: number;
+  date?: string;
+  minutes?: number;
+}
+
+function readStoredView(): StoredView | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
-    const { lat, lng } = JSON.parse(raw);
-    return isValidLatLng(lat, lng) ? [lat, lng] : null;
+    const { lat, lng, date, minutes } = JSON.parse(raw);
+    if (!isValidLatLng(lat, lng)) return null;
+    return {
+      lat,
+      lng,
+      date: typeof date === "string" ? date : undefined,
+      minutes: Number.isInteger(minutes) && minutes >= 0 && minutes <= 1439 ? minutes : undefined,
+    };
   } catch {
     return null;
   }
+}
+
+/** `date=YYYY-MM-DD` from the URL, if present and well-formed. */
+function dateFromQuery(): string | null {
+  const date = new URLSearchParams(window.location.search).get("date");
+  return date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null;
 }
 
 /**
@@ -68,13 +93,23 @@ async function geolocateByIp(): Promise<L.LatLngTuple | null> {
 /** City-level zoom appropriate for the coarse accuracy of IP-based geolocation. */
 const IP_GEOLOCATION_ZOOM = 10;
 
-/** Keeps the URL query params and localStorage in sync with the map center. */
-function persistCenter(lat: number, lng: number): void {
+/**
+ * Keeps the URL query params and localStorage in sync with the map center and selected date.
+ * Time of day is intentionally left out of the URL (so a shared link doesn't lock in a specific
+ * moment) but is still remembered in localStorage for this device.
+ */
+function persistViewState(): void {
+  const center = map.getCenter();
   const url = new URL(window.location.href);
-  url.searchParams.set("lat", lat.toFixed(5));
-  url.searchParams.set("lng", lng.toFixed(5));
+  url.searchParams.set("lat", center.lat.toFixed(5));
+  url.searchParams.set("lng", center.lng.toFixed(5));
+  url.searchParams.set("date", datePicker.value);
+  url.searchParams.delete("t");
   window.history.replaceState(null, "", url);
-  localStorage.setItem(STORAGE_KEY, JSON.stringify({ lat, lng }));
+  localStorage.setItem(
+    STORAGE_KEY,
+    JSON.stringify({ lat: center.lat, lng: center.lng, date: datePicker.value, minutes: Number(hourPicker.value) }),
+  );
 }
 
 const MAX_ZOOM = 19;
@@ -82,7 +117,9 @@ const MAX_ZOOM = 19;
 const LOCATE_ZOOM = MAX_ZOOM - 1;
 
 const queryCenter = centerFromQuery();
-const storageCenter = queryCenter ? null : centerFromStorage();
+const storedView = queryCenter ? null : readStoredView();
+const storageCenter: L.LatLngTuple | null = storedView ? [storedView.lat, storedView.lng] : null;
+const queryDate = dateFromQuery();
 
 const map = L.map(mapEl, { zoomControl: true, doubleClickZoom: "center", touchZoom: "center" }).setView(
   queryCenter ?? storageCenter ?? DEFAULT_CENTER,
@@ -115,10 +152,11 @@ function minutesToLabel(minutes: number): string {
   return `${h}:${m}`;
 }
 
-function selectedDate(): Date {
+/** The date/time picked, interpreted as local wall-clock time at `timeZone` (the map pin's zone). */
+function selectedDate(timeZone: string): Date {
   const [year, month, day] = datePicker.value.split("-").map(Number);
   const minutes = Number(hourPicker.value);
-  return new Date(year, month - 1, day, Math.floor(minutes / 60), minutes % 60);
+  return wallTimeToUtc(year, month, day, Math.floor(minutes / 60), minutes % 60, timeZone);
 }
 
 const BEAM_HORIZON_COLOR: [number, number, number] = [255, 214, 64]; // yellow, near the horizon
@@ -166,40 +204,69 @@ function renderSunBeams(azimuthDeg: number, altitudeDeg: number): void {
   });
 }
 
-/** Position a marker below the time slider at the point matching the given instant. */
-function placeTimeMarker(el: HTMLElement, time: Date | null): void {
+let obstructionLayer: L.Polygon | null = null;
+
+/** Outline the building that's currently blocking the sun. */
+function showObstructionHighlight(building: Building): void {
+  if (obstructionLayer) {
+    obstructionLayer.setLatLngs(building.footprint);
+  } else {
+    obstructionLayer = L.polygon(building.footprint, {
+      color: "#ef4444",
+      weight: 2,
+      fillOpacity: 0.15,
+      interactive: false,
+    }).addTo(map);
+  }
+}
+
+function clearObstructionHighlight(): void {
+  if (!obstructionLayer) return;
+  obstructionLayer.remove();
+  obstructionLayer = null;
+}
+
+/** Position a marker below the time slider at the point matching the given instant, in `timeZone`. */
+function placeTimeMarker(el: HTMLElement, time: Date | null, timeZone: string): void {
   if (!time || Number.isNaN(time.getTime())) {
     el.style.display = "none";
     return;
   }
-  const minutes = time.getHours() * 60 + time.getMinutes();
+  const minutes = utcToZonedMinutesOfDay(time, timeZone);
   const percent = (minutes / Number(hourPicker.max)) * 100;
   el.style.display = "block";
   el.style.left = `${percent}%`;
 }
 
 /** Slide the sunrise/solar-noon/sunset markers below the time slider to match today's sun times. */
-function setTimeMarkers(date: Date, lat: number, lng: number): void {
+function setTimeMarkers(date: Date, lat: number, lng: number, timeZone: string): void {
   const { sunrise, solarNoon, sunset } = getSunTimes(date, lat, lng);
-  placeTimeMarker(solarNoonMarker, solarNoon);
-  placeTimeMarker(sunriseMarker, sunrise);
-  placeTimeMarker(sunsetMarker, sunset);
+  placeTimeMarker(solarNoonMarker, solarNoon, timeZone);
+  placeTimeMarker(sunriseMarker, sunrise, timeZone);
+  placeTimeMarker(sunsetMarker, sunset, timeZone);
 }
 
-/** Jump the time slider to the given instant and re-render. */
-function jumpToTime(time: Date | null): void {
-  if (!time || Number.isNaN(time.getTime())) return;
-  const minutes = time.getHours() * 60 + time.getMinutes();
+/** Apply a new minutes-of-day selection, persist it, and re-render. */
+function applyMinutes(minutes: number): void {
   hourPicker.value = String(minutes);
   hourValue.textContent = minutesToLabel(minutes);
+  persistViewState();
   render();
+}
+
+/** Jump the time slider to the given instant (in `timeZone`) and re-render. */
+function jumpToTime(time: Date | null, timeZone: string): void {
+  if (!time || Number.isNaN(time.getTime())) return;
+  applyMinutes(utcToZonedMinutesOfDay(time, timeZone));
 }
 
 function render(): void {
   const center = map.getCenter();
-  const date = selectedDate();
+  const timeZone = resolveTimeZone(center.lat, center.lng);
+  const date = selectedDate(timeZone);
   const { azimuthDeg, altitudeDeg } = getSunPosition(date, center.lat, center.lng);
-  setTimeMarkers(date, center.lat, center.lng);
+  setTimeMarkers(date, center.lat, center.lng, timeZone);
+  tzLabel.textContent = formatUtcOffsetLabel(date, timeZone);
 
   const belowHorizon = altitudeDeg <= 0;
   sunBeamsSvg.style.display = belowHorizon ? "none" : "block";
@@ -207,40 +274,78 @@ function render(): void {
 
   if (belowHorizon) {
     statusEl.textContent = "Sun is down";
+    clearObstructionHighlight();
     return;
   }
 
   renderSunBeams(azimuthDeg, altitudeDeg);
-  statusEl.textContent = `${center.lat.toFixed(2)}, ${center.lng.toFixed(2)} — altitude ${altitudeDeg.toFixed(0)}°`;
+
+  const obstruction = findObstruction(center.lat, center.lng, azimuthDeg, altitudeDeg, getCachedBuildings());
+  beamLines.forEach((line) => line.classList.toggle("blocked", obstruction !== null));
+
+  if (obstruction) {
+    statusEl.textContent = `${center.lat.toFixed(2)}, ${center.lng.toFixed(2)} — blocked by a building (~${Math.round(obstruction.distanceM)}m away)`;
+    showObstructionHighlight(obstruction.building);
+  } else {
+    statusEl.textContent = `${center.lat.toFixed(2)}, ${center.lng.toFixed(2)} — altitude ${altitudeDeg.toFixed(0)}°`;
+    clearObstructionHighlight();
+  }
 }
 
+const PLAYBACK_STEP_MINUTES = 15;
+const PLAYBACK_INTERVAL_MS = 350;
+const playback = createPlayback({
+  getMinutes: () => Number(hourPicker.value),
+  setMinutes: applyMinutes,
+  stepMinutes: PLAYBACK_STEP_MINUTES,
+  maxMinutes: Number(hourPicker.max),
+  intervalMs: PLAYBACK_INTERVAL_MS,
+  onStop: () => playBtn.classList.remove("playing"),
+});
+
+const initialTimeZone = resolveTimeZone(map.getCenter().lat, map.getCenter().lng);
 const now = new Date();
-datePicker.value = now.toISOString().slice(0, 10);
-const initialMinutes = now.getHours() * 60 + now.getMinutes();
+datePicker.value = queryDate ?? storedView?.date ?? formatZonedDateInput(now, initialTimeZone);
+const initialMinutes = storedView?.minutes ?? utcToZonedMinutesOfDay(now, initialTimeZone);
 hourPicker.value = String(initialMinutes);
 hourValue.textContent = minutesToLabel(initialMinutes);
 
-datePicker.addEventListener("input", render);
-hourPicker.addEventListener("input", () => {
-  hourValue.textContent = minutesToLabel(Number(hourPicker.value));
+datePicker.addEventListener("input", () => {
+  playback.stop();
+  persistViewState();
   render();
 });
+hourPicker.addEventListener("pointerdown", () => playback.stop());
+hourPicker.addEventListener("input", () => {
+  applyMinutes(Number(hourPicker.value));
+});
+playBtn.addEventListener("click", () => {
+  playback.toggle();
+  playBtn.classList.toggle("playing", playback.isPlaying());
+});
 solarNoonMarker.addEventListener("click", () => {
+  playback.stop();
   const center = map.getCenter();
-  jumpToTime(getSunTimes(selectedDate(), center.lat, center.lng).solarNoon);
+  const timeZone = resolveTimeZone(center.lat, center.lng);
+  jumpToTime(getSunTimes(selectedDate(timeZone), center.lat, center.lng).solarNoon, timeZone);
 });
 sunriseMarker.addEventListener("click", () => {
+  playback.stop();
   const center = map.getCenter();
-  jumpToTime(getSunTimes(selectedDate(), center.lat, center.lng).sunrise);
+  const timeZone = resolveTimeZone(center.lat, center.lng);
+  jumpToTime(getSunTimes(selectedDate(timeZone), center.lat, center.lng).sunrise, timeZone);
 });
 sunsetMarker.addEventListener("click", () => {
+  playback.stop();
   const center = map.getCenter();
-  jumpToTime(getSunTimes(selectedDate(), center.lat, center.lng).sunset);
+  const timeZone = resolveTimeZone(center.lat, center.lng);
+  jumpToTime(getSunTimes(selectedDate(timeZone), center.lat, center.lng).sunset, timeZone);
 });
 map.on("move", render);
 map.on("moveend", () => {
+  persistViewState();
   const center = map.getCenter();
-  persistCenter(center.lat, center.lng);
+  scheduleBuildingFetch([center.lat, center.lng], render);
 });
 map.on("resize", render);
 window.addEventListener("resize", render);
@@ -262,6 +367,32 @@ locateBtn.addEventListener("click", () => {
   );
 });
 
-const initialCenter = map.getCenter();
-persistCenter(initialCenter.lat, initialCenter.lng);
+const COPY_FEEDBACK_MS = 1500;
+const copyLinkLabel = copyLinkBtn.querySelector<HTMLSpanElement>(".copy-link-label")!;
+copyLinkBtn.addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(window.location.href);
+    copyLinkBtn.classList.add("copied");
+    copyLinkLabel.textContent = "Copied!";
+    setTimeout(() => {
+      copyLinkBtn.classList.remove("copied");
+      copyLinkLabel.textContent = "Copy link";
+    }, COPY_FEEDBACK_MS);
+  } catch {
+    const previousText = statusEl.textContent;
+    const previousSunDown = statusEl.classList.contains("sun-down");
+    statusEl.classList.remove("sun-down");
+    statusEl.textContent = "Couldn't copy link";
+    setTimeout(() => {
+      statusEl.classList.toggle("sun-down", previousSunDown);
+      statusEl.textContent = previousText;
+    }, COPY_FEEDBACK_MS);
+  }
+});
+
+persistViewState();
+{
+  const center = map.getCenter();
+  scheduleBuildingFetch([center.lat, center.lng], render);
+}
 render();

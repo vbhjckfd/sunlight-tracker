@@ -65,6 +65,24 @@ body {
   height: 100%;
 }
 
+#compass-rose {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  z-index: 700;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: white;
+  color: #1e293b;
+  border: 2px solid rgba(0, 0, 0, 0.2);
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
+
 #sun-beams {
   position: absolute;
   inset: 0;
@@ -80,6 +98,11 @@ body {
   stroke-width: 4;
   stroke-linecap: round;
   transition: x1 0.2s ease-out, y1 0.2s ease-out, x2 0.2s ease-out, y2 0.2s ease-out, stroke 0.3s ease-out;
+}
+
+.sun-beam.blocked {
+  stroke: #6b7280;
+  stroke-dasharray: 6 5;
 }
 
 #controls {
@@ -112,6 +135,73 @@ body {
 
 #github-link:hover {
   opacity: 1;
+}
+
+#copy-link-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: white;
+  background: none;
+  border: none;
+  opacity: 0.75;
+  font-size: 0.85rem;
+  font-family: inherit;
+  cursor: pointer;
+  padding: 0;
+  transition: opacity 0.15s ease-out;
+}
+
+#copy-link-btn:hover {
+  opacity: 1;
+}
+
+.copy-link-check {
+  display: none;
+}
+
+#copy-link-btn.copied .copy-link-icon {
+  display: none;
+}
+
+#copy-link-btn.copied .copy-link-check {
+  display: block;
+  stroke: #4ade80;
+}
+
+#tz-label {
+  opacity: 0.75;
+  font-size: 0.8rem;
+}
+
+#play-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  color: white;
+  cursor: pointer;
+}
+
+#play-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.pause-icon {
+  display: none;
+}
+
+#play-btn.playing .play-icon {
+  display: none;
+}
+
+#play-btn.playing .pause-icon {
+  display: block;
 }
 
 #slider-wrap {
