@@ -15,6 +15,7 @@ const hourValue = document.querySelector<HTMLSpanElement>("#hour-value")!;
 const tzLabel = document.querySelector<HTMLSpanElement>("#tz-label")!;
 const locateBtn = document.querySelector<HTMLButtonElement>("#locate-btn")!;
 const playBtn = document.querySelector<HTMLButtonElement>("#play-btn")!;
+const buildingsSpinner = document.querySelector<HTMLDivElement>("#buildings-spinner")!;
 const copyLinkBtn = document.querySelector<HTMLButtonElement>("#copy-link-btn")!;
 const solarNoonMarker = document.querySelector<HTMLDivElement>("#solar-noon-marker")!;
 const sunriseMarker = document.querySelector<HTMLButtonElement>("#sunrise-marker")!;
@@ -341,11 +342,15 @@ sunsetMarker.addEventListener("click", () => {
   const timeZone = resolveTimeZone(center.lat, center.lng);
   jumpToTime(getSunTimes(selectedDate(timeZone), center.lat, center.lng).sunset, timeZone);
 });
+function setBuildingsFetching(fetching: boolean): void {
+  buildingsSpinner.classList.toggle("visible", fetching);
+}
+
 map.on("move", render);
 map.on("moveend", () => {
   persistViewState();
   const center = map.getCenter();
-  scheduleBuildingFetch([center.lat, center.lng], render);
+  scheduleBuildingFetch([center.lat, center.lng], render, setBuildingsFetching);
 });
 map.on("resize", render);
 window.addEventListener("resize", render);
@@ -393,6 +398,6 @@ copyLinkBtn.addEventListener("click", async () => {
 persistViewState();
 {
   const center = map.getCenter();
-  scheduleBuildingFetch([center.lat, center.lng], render);
+  scheduleBuildingFetch([center.lat, center.lng], render, setBuildingsFetching);
 }
 render();

@@ -271,7 +271,32 @@ body {
 #status {
   font-size: 0.85rem;
   opacity: 0.85;
+}
+
+#buildings-spinner {
+  width: 14px;
+  height: 14px;
   margin-right: auto;
+  flex-shrink: 0;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-top-color: white;
+  border-radius: 50%;
+  opacity: 0;
+  animation: spin 0.8s linear infinite;
+}
+
+#buildings-spinner.visible {
+  opacity: 1;
+}
+
+#buildings-spinner[hidden] {
+  display: none;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 #status.sun-down {

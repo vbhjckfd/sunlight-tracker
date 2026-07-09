@@ -35,10 +35,16 @@ function metersPerDegreeLng(lat: number): number {
 
 const METERS_PER_DEGREE_LAT = 111_320;
 
-/** Bearing (degrees clockwise from north, matching SunCalc's azimuth convention) and distance in meters. */
-function bearingDistanceTo(observerLat: number, observerLng: number, lat: number, lng: number): { bearingDeg: number; distanceM: number } {
+/** Flat local projection (meters east, meters north) relative to the observer, good enough at building scale. */
+function toLocalMeters(observerLat: number, observerLng: number, lat: number, lng: number): [number, number] {
   const dx = (lng - observerLng) * metersPerDegreeLng(observerLat);
   const dy = (lat - observerLat) * METERS_PER_DEGREE_LAT;
+  return [dx, dy];
+}
+
+/** Bearing (degrees clockwise from north, matching SunCalc's azimuth convention) and distance in meters. */
+function bearingDistanceTo(observerLat: number, observerLng: number, lat: number, lng: number): { bearingDeg: number; distanceM: number } {
+  const [dx, dy] = toLocalMeters(observerLat, observerLng, lat, lng);
   const distanceM = Math.hypot(dx, dy);
   const bearingDeg = ((Math.atan2(dx, dy) * 180) / Math.PI + 360) % 360;
   return { bearingDeg, distanceM };
@@ -46,6 +52,17 @@ function bearingDistanceTo(observerLat: number, observerLng: number, lat: number
 
 function distanceMeters(aLat: number, aLng: number, bLat: number, bLng: number): number {
   return bearingDistanceTo(aLat, aLng, bLat, bLng).distanceM;
+}
+
+/** Distance from the origin to the segment (ax,ay)-(bx,by), all in local meters. */
+function distanceToSegmentM(ax: number, ay: number, bx: number, by: number): number {
+  const abx = bx - ax;
+  const aby = by - ay;
+  const abLenSq = abx * abx + aby * aby;
+  const t = abLenSq > 0 ? Math.max(0, Math.min(1, (-ax * abx + -ay * aby) / abLenSq)) : 0;
+  const closestX = ax + t * abx;
+  const closestY = ay + t * aby;
+  return Math.hypot(closestX, closestY);
 }
 
 /** Ray-casting point-in-polygon test, used to exclude the building the observer's own pin sits inside. */
@@ -103,9 +120,10 @@ async function fetchBuildingsFromOverpass(lat: number, lng: number, radiusM: num
  * Debounced, cache-aware building fetch triggered on map moveend. Reuses the cached buildings if
  * the map hasn't moved close to the edge of the previously-fetched radius. Fails completely
  * silently on any network error or timeout — this is a "nice to have" overlay, never allowed to
- * disrupt core rendering.
+ * disrupt core rendering. `onFetchStateChange` fires around the actual network request only (not
+ * the debounce wait), so callers can show a "fetching" indicator.
  */
-export function scheduleBuildingFetch(center: L.LatLngTuple, onUpdate: () => void): void {
+export function scheduleBuildingFetch(center: L.LatLngTuple, onUpdate: () => void, onFetchStateChange: (fetching: boolean) => void): void {
   if (cachedCenter && distanceMeters(center[0], center[1], cachedCenter[0], cachedCenter[1]) < FETCH_RADIUS_M - REFETCH_MARGIN_M) {
     return;
   }
@@ -118,6 +136,7 @@ export function scheduleBuildingFetch(center: L.LatLngTuple, onUpdate: () => voi
     inFlightController = controller;
     const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
+    onFetchStateChange(true);
     fetchBuildingsFromOverpass(center[0], center[1], FETCH_RADIUS_M, controller.signal)
       .then((buildings) => {
         cachedBuildings = buildings;
@@ -129,27 +148,45 @@ export function scheduleBuildingFetch(center: L.LatLngTuple, onUpdate: () => voi
       })
       .finally(() => {
         clearTimeout(timeoutId);
-        if (inFlightController === controller) inFlightController = null;
+        if (inFlightController === controller) {
+          inFlightController = null;
+          onFetchStateChange(false);
+        }
       });
   }, MOVE_DEBOUNCE_MS);
 }
 
-/** Unwraps bearings relative to the footprint's first vertex so a min/max span works across the 0/360 seam. */
-function bearingSpan(observerLat: number, observerLng: number, footprint: L.LatLngTuple[]): { min: number; max: number; nearestDistanceM: number } {
-  const first = bearingDistanceTo(observerLat, observerLng, footprint[0][0], footprint[0][1]);
-  let min = first.bearingDeg;
-  let max = first.bearingDeg;
-  let nearestDistanceM = first.distanceM;
+interface EdgeSpan {
+  min: number;
+  max: number;
+  nearestDistanceM: number;
+}
 
-  for (let i = 1; i < footprint.length; i++) {
-    const { bearingDeg, distanceM } = bearingDistanceTo(observerLat, observerLng, footprint[i][0], footprint[i][1]);
-    const unwrapped = first.bearingDeg + (((bearingDeg - first.bearingDeg + 540) % 360) - 180);
-    min = Math.min(min, unwrapped);
-    max = Math.max(max, unwrapped);
-    nearestDistanceM = Math.min(nearestDistanceM, distanceM);
+/**
+ * Angular span + nearest distance for a single polygon edge, as seen from the observer. Edges
+ * (not whole polygons) are the right unit here: a large, close, non-convex building — e.g. a
+ * courtyard apartment block the observer is standing right next to — can wrap most of the way
+ * around the observer, so a single min/max bearing over *all* its vertices would (wrongly) claim
+ * it blocks the sun from nearly every direction. A single wall segment never has that problem.
+ */
+function edgeSpans(observerLat: number, observerLng: number, footprint: L.LatLngTuple[]): EdgeSpan[] {
+  const local = footprint.map(([lat, lng]) => toLocalMeters(observerLat, observerLng, lat, lng));
+  const spans: EdgeSpan[] = [];
+
+  for (let i = 0; i < local.length; i++) {
+    const [ax, ay] = local[i];
+    const [bx, by] = local[(i + 1) % local.length];
+    const bearingA = ((Math.atan2(ax, ay) * 180) / Math.PI + 360) % 360;
+    const bearingB = ((Math.atan2(bx, by) * 180) / Math.PI + 360) % 360;
+    const unwrappedB = bearingA + (((bearingB - bearingA + 540) % 360) - 180);
+    spans.push({
+      min: Math.min(bearingA, unwrappedB),
+      max: Math.max(bearingA, unwrappedB),
+      nearestDistanceM: distanceToSegmentM(ax, ay, bx, by),
+    });
   }
 
-  return { min, max, nearestDistanceM };
+  return spans;
 }
 
 /** Does a building block the sun at `azimuthDeg`/`altitudeDeg` as seen from the observer? Returns the nearest match. */
@@ -159,17 +196,17 @@ export function findObstruction(observerLat: number, observerLng: number, azimut
   for (const building of buildings) {
     if (isPointInPolygon(observerLat, observerLng, building.footprint)) continue; // the observer's own building
 
-    const { min, max, nearestDistanceM } = bearingSpan(observerLat, observerLng, building.footprint);
-    if (nearestDistanceM <= 0) continue;
+    for (const { min, max, nearestDistanceM } of edgeSpans(observerLat, observerLng, building.footprint)) {
+      if (nearestDistanceM <= 0) continue;
+      if (nearest && nearestDistanceM >= nearest.distanceM) continue; // already have a closer match
 
-    // Bring azimuth into the same unwrapped window as [min, max] before comparing.
-    const unwrappedAzimuth = min + (((azimuthDeg - min + 540) % 360) - 180);
-    if (unwrappedAzimuth < min || unwrappedAzimuth > max) continue;
+      // Bring azimuth into the same unwrapped window as [min, max] before comparing.
+      const unwrappedAzimuth = min + (((azimuthDeg - min + 540) % 360) - 180);
+      if (unwrappedAzimuth < min || unwrappedAzimuth > max) continue;
 
-    const angularHeightDeg = (Math.atan2(building.heightM, nearestDistanceM) * 180) / Math.PI;
-    if (altitudeDeg >= angularHeightDeg) continue;
+      const angularHeightDeg = (Math.atan2(building.heightM, nearestDistanceM) * 180) / Math.PI;
+      if (altitudeDeg >= angularHeightDeg) continue;
 
-    if (!nearest || nearestDistanceM < nearest.distanceM) {
       nearest = { building, distanceM: nearestDistanceM };
     }
   }
