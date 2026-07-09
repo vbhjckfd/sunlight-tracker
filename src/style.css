@@ -65,32 +65,21 @@ body {
   height: 100%;
 }
 
-#sun-icon {
+#sun-beams {
   position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 64px;
-  height: 64px;
-  margin: -32px 0 0 -32px;
-  z-index: 600;
-  pointer-events: none;
-  filter: drop-shadow(0 0 6px rgba(255, 200, 0, 0.9));
-  transition: transform 0.2s ease-out, opacity 0.2s ease-out, filter 0.2s ease-out;
-}
-
-#sun-icon.below-horizon {
-  opacity: 0.45;
-  filter: grayscale(1) drop-shadow(0 0 3px rgba(0, 0, 0, 0.5));
-}
-
-#sun-icon svg {
-  display: block;
+  inset: 0;
   width: 100%;
   height: 100%;
+  /* Leaflet's own .leaflet-map-pane sits at z-index 400 too, and it comes
+     later in the DOM, so anything tied with it here would be painted over. */
+  z-index: 450;
+  pointer-events: none;
 }
 
-#angle-needle {
-  transition: x2 0.2s ease-out, y2 0.2s ease-out;
+.sun-beam {
+  stroke-width: 4;
+  stroke-linecap: round;
+  transition: x1 0.2s ease-out, y1 0.2s ease-out, x2 0.2s ease-out, y2 0.2s ease-out, stroke 0.3s ease-out;
 }
 
 #controls {
@@ -178,4 +167,18 @@ body {
   font-size: 0.85rem;
   opacity: 0.85;
   margin-right: auto;
+}
+
+#status.sun-down {
+  animation: flash-text 1.6s ease-in-out infinite;
+}
+
+@keyframes flash-text {
+  0%,
+  100% {
+    opacity: 0.85;
+  }
+  50% {
+    opacity: 0.25;
+  }
 }

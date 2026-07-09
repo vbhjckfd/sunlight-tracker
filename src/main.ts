@@ -4,8 +4,7 @@ import * as L from "leaflet";
 import { getSunPosition, getSunTimes } from "./sunPosition.ts";
 
 const mapEl = document.querySelector<HTMLDivElement>("#map")!;
-const sunIcon = document.querySelector<HTMLDivElement>("#sun-icon")!;
-const angleNeedle = document.querySelector<SVGLineElement>("#angle-needle")!;
+const sunBeamsSvg = document.querySelector<SVGSVGElement>("#sun-beams")!;
 const statusEl = document.querySelector<HTMLDivElement>("#status")!;
 const datePicker = document.querySelector<HTMLInputElement>("#date-picker")!;
 const hourPicker = document.querySelector<HTMLInputElement>("#hour-picker")!;
@@ -14,6 +13,10 @@ const locateBtn = document.querySelector<HTMLButtonElement>("#locate-btn")!;
 const solarNoonMarker = document.querySelector<HTMLDivElement>("#solar-noon-marker")!;
 const sunriseMarker = document.querySelector<HTMLButtonElement>("#sunrise-marker")!;
 const sunsetMarker = document.querySelector<HTMLButtonElement>("#sunset-marker")!;
+const BEAM_COUNT = 4;
+const beamLines = Array.from({ length: BEAM_COUNT }, (_, i) =>
+  document.querySelector<SVGLineElement>(`#beam-${i}`)!,
+);
 
 const DEFAULT_CENTER: L.LatLngTuple = [48.3794, 31.1656];
 const STORAGE_KEY = "sunlight-tracker:last-location";
@@ -118,19 +121,49 @@ function selectedDate(): Date {
   return new Date(year, month - 1, day, Math.floor(minutes / 60), minutes % 60);
 }
 
-/** Max distance (px) the sun icon travels from center as it nears the horizon. */
-function maxRadius(): number {
-  return Math.min(mapEl.clientWidth, mapEl.clientHeight) / 2 - 40;
+const BEAM_HORIZON_COLOR: [number, number, number] = [255, 214, 64]; // yellow, near the horizon
+const BEAM_ZENITH_COLOR: [number, number, number] = [200, 30, 24]; // deep red, overhead
+/** Fraction of the map's shorter side spanned by the outermost beams. */
+const BEAM_SPREAD_RATIO = 0.12;
+
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t;
 }
 
-/** Needle length (svg units) from the gauge's pivot at (50, 50). */
-const NEEDLE_LENGTH = 18;
+/** Yellow near the horizon, deepening to red overhead. */
+function altitudeToBeamColor(altitudeDeg: number): string {
+  const t = Math.min(altitudeDeg, 90) / 90;
+  const [r, g, b] = BEAM_HORIZON_COLOR.map((horizon, i) => Math.round(lerp(horizon, BEAM_ZENITH_COLOR[i], t)));
+  return `rgb(${r}, ${g}, ${b})`;
+}
 
-/** Point the gauge needle from horizon (0°) to zenith (90°) to mirror the sun's altitude. */
-function setAngleNeedle(altitudeDeg: number): void {
-  const rad = (Math.max(0, Math.min(90, altitudeDeg)) * Math.PI) / 180;
-  angleNeedle.setAttribute("x2", String(50 + NEEDLE_LENGTH * Math.cos(rad)));
-  angleNeedle.setAttribute("y2", String(50 - NEEDLE_LENGTH * Math.sin(rad)));
+/** Draw 4 parallel beams from off the map edge, in the sun's direction, converging on the house. */
+function renderSunBeams(azimuthDeg: number, altitudeDeg: number): void {
+  const width = mapEl.clientWidth;
+  const height = mapEl.clientHeight;
+  sunBeamsSvg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+
+  const cx = width / 2;
+  const cy = height / 2;
+  const azimuthRad = (azimuthDeg * Math.PI) / 180;
+  const dirX = Math.sin(azimuthRad);
+  const dirY = -Math.cos(azimuthRad);
+  const perpX = -dirY;
+  const perpY = dirX;
+
+  const farDistance = Math.hypot(width, height);
+  const maxOffset = Math.min(width, height) * BEAM_SPREAD_RATIO;
+  const color = altitudeToBeamColor(altitudeDeg);
+
+  beamLines.forEach((line, i) => {
+    const t = (i / (BEAM_COUNT - 1)) * 2 - 1; // -1..1, evenly spaced
+    const offset = t * maxOffset;
+    line.setAttribute("x1", String(cx + dirX * farDistance + perpX * offset));
+    line.setAttribute("y1", String(cy + dirY * farDistance + perpY * offset));
+    line.setAttribute("x2", String(cx + perpX * offset));
+    line.setAttribute("y2", String(cy + perpY * offset));
+    line.setAttribute("stroke", color);
+  });
 }
 
 /** Position a marker below the time slider at the point matching the given instant. */
@@ -169,17 +202,16 @@ function render(): void {
   setTimeMarkers(date, center.lat, center.lng);
 
   const belowHorizon = altitudeDeg <= 0;
-  const radius = maxRadius() * (1 - Math.max(altitudeDeg, 0) / 90);
-  const azimuthRad = (azimuthDeg * Math.PI) / 180;
-  const x = radius * Math.sin(azimuthRad);
-  const y = -radius * Math.cos(azimuthRad);
+  sunBeamsSvg.style.display = belowHorizon ? "none" : "block";
+  statusEl.classList.toggle("sun-down", belowHorizon);
 
-  sunIcon.classList.toggle("below-horizon", belowHorizon);
-  sunIcon.style.transform = `translate(${x}px, ${y}px)`;
-  setAngleNeedle(altitudeDeg);
-  statusEl.textContent = belowHorizon
-    ? `Sun below horizon at ${center.lat.toFixed(2)}, ${center.lng.toFixed(2)} (altitude ${altitudeDeg.toFixed(1)}°)`
-    : `${center.lat.toFixed(2)}, ${center.lng.toFixed(2)} — altitude ${altitudeDeg.toFixed(0)}°`;
+  if (belowHorizon) {
+    statusEl.textContent = "Sun is down";
+    return;
+  }
+
+  renderSunBeams(azimuthDeg, altitudeDeg);
+  statusEl.textContent = `${center.lat.toFixed(2)}, ${center.lng.toFixed(2)} — altitude ${altitudeDeg.toFixed(0)}°`;
 }
 
 const now = new Date();
@@ -215,6 +247,7 @@ window.addEventListener("resize", render);
 
 locateBtn.addEventListener("click", () => {
   if (!navigator.geolocation) {
+    statusEl.classList.remove("sun-down");
     statusEl.textContent = "Geolocation is not supported by this browser";
     return;
   }
@@ -223,6 +256,7 @@ locateBtn.addEventListener("click", () => {
       map.setView([position.coords.latitude, position.coords.longitude], LOCATE_ZOOM);
     },
     () => {
+      statusEl.classList.remove("sun-down");
       statusEl.textContent = "Unable to retrieve your location";
     },
   );
