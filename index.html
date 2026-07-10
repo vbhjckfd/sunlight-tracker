@@ -7,8 +7,8 @@
     <meta name="theme-color" content="#1e293b" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Sunlight Tracker</title>
-    <script type="module" crossorigin src="/sunlight-tracker/assets/index-DQn694QU.js"></script>
-    <link rel="stylesheet" crossorigin href="/sunlight-tracker/assets/index-CeKLApsf.css">
+    <script type="module" crossorigin src="/sunlight-tracker/assets/index-6upcaw_x.js"></script>
+    <link rel="stylesheet" crossorigin href="/sunlight-tracker/assets/index-Lg1qqLiq.css">
   <link rel="manifest" href="/sunlight-tracker/manifest.webmanifest"><script id="vite-plugin-pwa:register-sw" src="/sunlight-tracker/registerSW.js"></script></head>
   <body>
     <div id="app">
@@ -54,11 +54,11 @@
         <div id="status"></div>
         <div id="buildings-spinner" title="Asking for buildings heights"></div>
         <label>
-          Date
+          <span id="date-label">Date</span>
           <input type="date" id="date-picker" />
         </label>
         <label>
-          Time: <span id="hour-value">12:00</span> <span id="tz-label"></span>
+          <span id="time-label">Time:</span> <span id="hour-value">12:00</span> <span id="tz-label"></span>
           <button id="play-btn" type="button" title="Play through the day">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
               <polygon class="play-icon" points="6,4 20,12 6,20" />
@@ -84,6 +84,10 @@
               </svg>
             </button>
           </div>
+        </label>
+        <label id="shadows-toggle" title="Highlight when a neighboring building blocks the sun (experimental)">
+          <input type="checkbox" id="shadows-checkbox" />
+          🏢 <span id="shadows-label">Building shadows</span> <span class="beta-badge">BETA</span>
         </label>
         <button id="copy-link-btn" type="button" title="Copy a link to this exact view">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
