@@ -19,6 +19,8 @@ an apartment.
   neighboring building shades the complex at the selected moment. Off by
   default; enable it with the 🏢 Shadows checkbox in the panel
 - 🧭 **Compass rose** that follows the map's rotation
+- 🌐 **UA / EN interface**, following the page's language (`<html lang>`);
+  English is the fallback
 - 🌙 **"Sun is down"** state outside daylight hours
 
 At 05:45 the low morning sun is still hidden behind a neighboring building —

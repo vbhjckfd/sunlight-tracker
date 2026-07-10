@@ -16,6 +16,7 @@ import {
 } from "../../src/timezone.ts";
 import { createPlayback } from "../../src/playback.ts";
 import { scheduleBuildingFetch, getCachedBuildings, findObstruction } from "../../src/buildingShadows.ts";
+import { pickLanguage, getStrings, type Strings } from "../../src/i18n.ts";
 
 const STORAGE_KEY = "sunlight-tracker:lun-view";
 const BEAM_COUNT = 4;
@@ -126,7 +127,7 @@ function readStoredView(): StoredView {
   }
 }
 
-const OVERLAY_HTML = `
+const overlayHtml = (t: Strings): string => `
   <svg class="slt-sun-beams">
     ${Array.from({ length: BEAM_COUNT }, (_, i) => `<line class="slt-sun-beam" data-beam="${i}" />`).join("")}
   </svg>
@@ -146,15 +147,15 @@ const OVERLAY_HTML = `
   <div class="slt-controls">
     <div class="slt-status-row">
       <span class="slt-status"></span>
-      <span class="slt-spinner" title="Fetching building heights"></span>
-      <label class="slt-shadows-toggle" title="Highlight when a neighboring building blocks the sun (experimental)">
+      <span class="slt-spinner" title="${t.fetchingBuildings}"></span>
+      <label class="slt-shadows-toggle" title="${t.shadowsTitle}">
         <input type="checkbox" class="slt-shadows" />
-        🏢 Shadows <span class="slt-beta">BETA</span>
+        🏢 ${t.shadowsShortLabel} <span class="slt-beta">BETA</span>
       </label>
     </div>
     <div class="slt-inputs-row">
-      <input type="date" class="slt-date" title="Date" />
-      <button type="button" class="slt-play" title="Play through the day">
+      <input type="date" class="slt-date" title="${t.dateLabel}" />
+      <button type="button" class="slt-play" title="${t.playTitle}">
         <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
           <polygon class="slt-play-icon" points="6,4 20,12 6,20" />
           <rect class="slt-pause-icon" x="6" y="4" width="4" height="16" />
@@ -163,15 +164,15 @@ const OVERLAY_HTML = `
       </button>
       <div class="slt-slider-wrap">
         <input type="range" class="slt-hour" min="0" max="${MAX_MINUTES}" step="15" />
-        <div class="slt-noon-marker" title="Solar noon (sun's highest point)"></div>
-        <button type="button" class="slt-time-icon slt-sunrise-marker" title="Sunrise">
+        <div class="slt-noon-marker" title="${t.solarNoonTitle}"></div>
+        <button type="button" class="slt-time-icon slt-sunrise-marker" title="${t.sunriseTitle}">
           <svg viewBox="0 0 24 24" width="16" height="16">
             <line x1="2" y1="18" x2="22" y2="18" stroke="#f5a300" stroke-width="2" stroke-linecap="round" />
             <path d="M6 18a6 6 0 0 1 12 0" fill="#ffcc33" stroke="#f5a300" stroke-width="1.5" />
             <path d="M12 10V4M9 7l3-3 3 3" fill="none" stroke="#f5a300" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
         </button>
-        <button type="button" class="slt-time-icon slt-sunset-marker" title="Sunset">
+        <button type="button" class="slt-time-icon slt-sunset-marker" title="${t.sunsetTitle}">
           <svg viewBox="0 0 24 24" width="16" height="16">
             <line x1="2" y1="18" x2="22" y2="18" stroke="#b45309" stroke-width="2" stroke-linecap="round" />
             <path d="M6 18a6 6 0 0 1 12 0" fill="#f97316" stroke="#b45309" stroke-width="1.5" />
@@ -208,13 +209,22 @@ function init(): void {
 function attach(complex: ComplexLocation, container: HTMLElement): void {
   if (container.querySelector(".slt-root")) return; // already attached
 
+  // Language follows the host page's metadata (lun.ua sets <html lang="uk">);
+  // anything unsupported (e.g. "ru") falls back to English.
+  const t = getStrings(
+    pickLanguage([
+      document.documentElement.lang,
+      document.querySelector<HTMLMetaElement>('meta[property="og:locale"]')?.content,
+    ]),
+  );
+
   if (getComputedStyle(container).position === "static") {
     container.style.position = "relative";
   }
 
   const root = document.createElement("div");
   root.className = "slt-root";
-  root.innerHTML = OVERLAY_HTML;
+  root.innerHTML = overlayHtml(t);
   container.appendChild(root);
 
   const sunBeamsSvg = root.querySelector<SVGSVGElement>(".slt-sun-beams")!;
@@ -358,7 +368,7 @@ function attach(complex: ComplexLocation, container: HTMLElement): void {
     statusEl.classList.toggle("slt-sun-down", belowHorizon);
 
     if (belowHorizon) {
-      statusEl.textContent = "Sun is down";
+      statusEl.textContent = t.sunDown;
       return;
     }
 
@@ -370,8 +380,8 @@ function attach(complex: ComplexLocation, container: HTMLElement): void {
     beamLines.forEach((line) => line.classList.toggle("slt-blocked", obstruction !== null));
 
     statusEl.textContent = obstruction
-      ? `☀️ ${complex.name} — sun blocked by a building (~${Math.round(obstruction.distanceM)}m away)`
-      : `☀️ ${complex.name} — sun altitude ${altitudeDeg.toFixed(0)}°`;
+      ? `☀️ ${complex.name} — ${t.blockedByBuilding(Math.round(obstruction.distanceM))}`
+      : `☀️ ${complex.name} — ${t.altitude(altitudeDeg.toFixed(0))}`;
   }
 
   function applyMinutes(minutes: number): void {

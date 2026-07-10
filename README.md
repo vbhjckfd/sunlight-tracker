@@ -14,6 +14,7 @@ See where the sun is, right now (or any date/time you pick), for any spot on the
 - 📅🕐 **Date & time picker** — scrub through any day or hour to see how the sun moves.
 - 🌅🕛🌇 **Sunrise / solar noon / sunset markers** — clickable icons under the time slider jump straight to that moment.
 - 📍 **"Locate me"** button — one click to center the map on your real location (zooms to street level).
+- 🌐 **UA / EN interface** — follows your browser's preferred languages, with English as the fallback.
 - 🌐 **First-visit geolocation** — no location saved yet? A quick, permission-free IP lookup gets you close, no browser prompt needed.
 
 ![Close-up of the control bar: coordinates, altitude, date/time picker, and sunrise/noon/sunset markers](docs/screenshot-controls.png)

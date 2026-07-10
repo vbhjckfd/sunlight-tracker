@@ -5,6 +5,12 @@ import { getSunPosition, getSunTimes } from "./sunPosition.ts";
 import { resolveTimeZone, wallTimeToUtc, utcToZonedMinutesOfDay, formatUtcOffsetLabel, formatZonedDateInput } from "./timezone.ts";
 import { createPlayback } from "./playback.ts";
 import { scheduleBuildingFetch, getCachedBuildings, findObstruction, type Building } from "./buildingShadows.ts";
+import { pickLanguage, getStrings } from "./i18n.ts";
+
+// Language comes from the browser's preference list; English is the fallback.
+const lang = pickLanguage(navigator.languages ?? [navigator.language]);
+const t = getStrings(lang);
+document.documentElement.lang = lang;
 
 const mapEl = document.querySelector<HTMLDivElement>("#map")!;
 const sunBeamsSvg = document.querySelector<SVGSVGElement>("#sun-beams")!;
@@ -25,6 +31,20 @@ const BEAM_COUNT = 4;
 const beamLines = Array.from({ length: BEAM_COUNT }, (_, i) =>
   document.querySelector<SVGLineElement>(`#beam-${i}`)!,
 );
+
+// Static UI text ships in English in index.html; swap it to the picked language.
+document.querySelector<HTMLSpanElement>("#date-label")!.textContent = t.dateLabel;
+document.querySelector<HTMLSpanElement>("#time-label")!.textContent = t.timeLabel;
+document.querySelector<HTMLSpanElement>("#shadows-label")!.textContent = t.shadowsLabel;
+document.querySelector<HTMLElement>("#location-pin")!.title = t.pinTitle;
+document.querySelector<HTMLElement>("#shadows-toggle")!.title = t.shadowsTitle;
+locateBtn.title = t.locateTitle;
+playBtn.title = t.playTitle;
+buildingsSpinner.title = t.fetchingBuildings;
+copyLinkBtn.title = t.copyLinkTitle;
+solarNoonMarker.title = t.solarNoonTitle;
+sunriseMarker.title = t.sunriseTitle;
+sunsetMarker.title = t.sunsetTitle;
 
 const DEFAULT_CENTER: L.LatLngTuple = [48.3794, 31.1656];
 const STORAGE_KEY = "sunlight-tracker:last-location";
@@ -291,7 +311,7 @@ function render(): void {
   statusEl.classList.toggle("sun-down", belowHorizon);
 
   if (belowHorizon) {
-    statusEl.textContent = "Sun is down";
+    statusEl.textContent = t.sunDown;
     clearObstructionHighlight();
     return;
   }
@@ -304,10 +324,10 @@ function render(): void {
   beamLines.forEach((line) => line.classList.toggle("blocked", obstruction !== null));
 
   if (obstruction) {
-    statusEl.textContent = `${center.lat.toFixed(2)}, ${center.lng.toFixed(2)} — blocked by a building (~${Math.round(obstruction.distanceM)}m away)`;
+    statusEl.textContent = `${center.lat.toFixed(2)}, ${center.lng.toFixed(2)} — ${t.blockedByBuilding(Math.round(obstruction.distanceM))}`;
     showObstructionHighlight(obstruction.building);
   } else {
-    statusEl.textContent = `${center.lat.toFixed(2)}, ${center.lng.toFixed(2)} — altitude ${altitudeDeg.toFixed(0)}°`;
+    statusEl.textContent = `${center.lat.toFixed(2)}, ${center.lng.toFixed(2)} — ${t.altitude(altitudeDeg.toFixed(0))}`;
     clearObstructionHighlight();
   }
 }
@@ -391,7 +411,7 @@ window.addEventListener("resize", render);
 locateBtn.addEventListener("click", () => {
   if (!navigator.geolocation) {
     statusEl.classList.remove("sun-down");
-    statusEl.textContent = "Geolocation is not supported by this browser";
+    statusEl.textContent = t.geoUnsupported;
     return;
   }
   navigator.geolocation.getCurrentPosition(
@@ -400,27 +420,28 @@ locateBtn.addEventListener("click", () => {
     },
     () => {
       statusEl.classList.remove("sun-down");
-      statusEl.textContent = "Unable to retrieve your location";
+      statusEl.textContent = t.geoFailed;
     },
   );
 });
 
 const COPY_FEEDBACK_MS = 1500;
 const copyLinkLabel = copyLinkBtn.querySelector<HTMLSpanElement>(".copy-link-label")!;
+copyLinkLabel.textContent = t.copyLink;
 copyLinkBtn.addEventListener("click", async () => {
   try {
     await navigator.clipboard.writeText(window.location.href);
     copyLinkBtn.classList.add("copied");
-    copyLinkLabel.textContent = "Copied!";
+    copyLinkLabel.textContent = t.copied;
     setTimeout(() => {
       copyLinkBtn.classList.remove("copied");
-      copyLinkLabel.textContent = "Copy link";
+      copyLinkLabel.textContent = t.copyLink;
     }, COPY_FEEDBACK_MS);
   } catch {
     const previousText = statusEl.textContent;
     const previousSunDown = statusEl.classList.contains("sun-down");
     statusEl.classList.remove("sun-down");
-    statusEl.textContent = "Couldn't copy link";
+    statusEl.textContent = t.copyFailed;
     setTimeout(() => {
       statusEl.classList.toggle("sun-down", previousSunDown);
       statusEl.textContent = previousText;
