@@ -15,8 +15,14 @@ const FETCH_RADIUS_M = 300;
 const REFETCH_MARGIN_M = 80;
 const MOVE_DEBOUNCE_MS = 800;
 const FETCH_TIMEOUT_MS = 10_000;
-const DEFAULT_BUILDING_HEIGHT_M = 6; // ~2 stories, used when OSM has no height/levels tag
 const METERS_PER_LEVEL = 3;
+/**
+ * Buildings shorter than this can't meaningfully shade an observer (sheds,
+ * garages, kiosks) and are ignored, as are buildings whose height OSM simply
+ * doesn't know — guessing a height would produce confident-looking but made-up
+ * "blocked" verdicts.
+ */
+const MIN_OBSTRUCTION_HEIGHT_M = 4;
 const OVERPASS_URL = "https://overpass-api.de/api/interpreter";
 
 let cachedBuildings: Building[] = [];
@@ -77,8 +83,8 @@ function isPointInPolygon(lat: number, lng: number, footprint: L.LatLngTuple[]):
   return inside;
 }
 
-/** Parses OSM height tags: `tags.height` (meters, may have a trailing unit) → `building:levels` → a fallback default. */
-function resolveHeightM(tags: Record<string, string> | undefined): number {
+/** Parses OSM height tags: `tags.height` (meters, may have a trailing unit) → `building:levels` → null when unknown. */
+function resolveHeightM(tags: Record<string, string> | undefined): number | null {
   const heightTag = tags?.height;
   if (heightTag) {
     const meters = Number.parseFloat(heightTag);
@@ -89,7 +95,7 @@ function resolveHeightM(tags: Record<string, string> | undefined): number {
     const levels = Number.parseFloat(levelsTag);
     if (Number.isFinite(levels) && levels > 0) return levels * METERS_PER_LEVEL;
   }
-  return DEFAULT_BUILDING_HEIGHT_M;
+  return null;
 }
 
 interface OverpassElement {
@@ -108,12 +114,17 @@ async function fetchBuildingsFromOverpass(lat: number, lng: number, radiusM: num
   });
   if (!response.ok) throw new Error(`Overpass request failed: ${response.status}`);
   const data: { elements: OverpassElement[] } = await response.json();
-  return data.elements
-    .filter((el) => el.type === "way" && el.geometry && el.geometry.length >= 3)
-    .map((el) => ({
-      footprint: el.geometry!.map((p): L.LatLngTuple => [p.lat, p.lon]),
-      heightM: resolveHeightM(el.tags),
-    }));
+  const buildings: Building[] = [];
+  for (const el of data.elements) {
+    if (el.type !== "way" || !el.geometry || el.geometry.length < 3) continue;
+    const heightM = resolveHeightM(el.tags);
+    if (heightM === null || heightM < MIN_OBSTRUCTION_HEIGHT_M) continue;
+    buildings.push({
+      footprint: el.geometry.map((p): L.LatLngTuple => [p.lat, p.lon]),
+      heightM,
+    });
+  }
+  return buildings;
 }
 
 /**

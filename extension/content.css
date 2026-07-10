@@ -99,6 +99,33 @@
   }
 }
 
+.slt-shadows-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-left: auto;
+  font-size: 0.75rem;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+
+.slt-shadows-toggle input {
+  margin: 0;
+  accent-color: #f59e0b;
+  cursor: pointer;
+}
+
+.slt-beta {
+  background: #f59e0b;
+  color: #1e293b;
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 0.05rem 0.25rem;
+  border-radius: 4px;
+}
+
 .slt-spinner {
   width: 13px;
   height: 13px;

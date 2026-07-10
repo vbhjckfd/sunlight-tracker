@@ -137,6 +137,26 @@ body {
   opacity: 1;
 }
 
+#shadows-toggle {
+  cursor: pointer;
+  user-select: none;
+}
+
+#shadows-toggle input {
+  accent-color: #f59e0b;
+  cursor: pointer;
+}
+
+.beta-badge {
+  background: #f59e0b;
+  color: #1e293b;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 0.1rem 0.3rem;
+  border-radius: 4px;
+}
+
 #copy-link-btn {
   display: flex;
   align-items: center;

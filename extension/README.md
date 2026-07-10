@@ -14,9 +14,10 @@ an apartment.
   from 🟡 yellow (near the horizon) to 🔴 red (overhead)
 - 📅🕐 **Date picker + time-of-day slider** with ▶ playback through the day
 - 🌅🕛🌇 **Sunrise / solar-noon / sunset markers** under the slider — click to jump
-- 🏢 **"Sun blocked by a building" check** using OpenStreetMap building
-  heights (via the Overpass API) — beams turn gray and dashed when a
-  neighboring building shades the complex at the selected moment
+- 🏢 **"Sun blocked by a building" check** (opt-in, BETA) using OpenStreetMap
+  building heights (via the Overpass API) — beams turn gray and dashed when a
+  neighboring building shades the complex at the selected moment. Off by
+  default; enable it with the 🏢 Shadows checkbox in the panel
 - 🧭 **Compass rose** that follows the map's rotation
 - 🌙 **"Sun is down"** state outside daylight hours
 
@@ -84,8 +85,8 @@ Ready-made 1280×800 screenshots live in [`store/`](store/). Suggested copy:
 > • Sun-direction beams for any date and time of year, colored by sun altitude
 > • Sunrise, solar noon and sunset markers — one click to jump to that moment
 > • Play button to watch the sun sweep across the whole day
-> • A building-shadow check powered by OpenStreetMap: when a neighboring
->   building blocks the sun at the selected moment, the beams turn gray and
->   the distance to the blocker is shown
+> • An opt-in building-shadow check (beta) powered by OpenStreetMap: when a
+>   neighboring building blocks the sun at the selected moment, the beams
+>   turn gray and the distance to the blocker is shown
 >
 > No account, no tracking, no permissions beyond the lun.ua pages it runs on.

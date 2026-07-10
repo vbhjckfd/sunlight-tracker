@@ -17,6 +17,7 @@ const locateBtn = document.querySelector<HTMLButtonElement>("#locate-btn")!;
 const playBtn = document.querySelector<HTMLButtonElement>("#play-btn")!;
 const buildingsSpinner = document.querySelector<HTMLDivElement>("#buildings-spinner")!;
 const copyLinkBtn = document.querySelector<HTMLButtonElement>("#copy-link-btn")!;
+const shadowsCheckbox = document.querySelector<HTMLInputElement>("#shadows-checkbox")!;
 const solarNoonMarker = document.querySelector<HTMLDivElement>("#solar-noon-marker")!;
 const sunriseMarker = document.querySelector<HTMLButtonElement>("#sunrise-marker")!;
 const sunsetMarker = document.querySelector<HTMLButtonElement>("#sunset-marker")!;
@@ -47,19 +48,21 @@ interface StoredView {
   lng: number;
   date?: string;
   minutes?: number;
+  shadows?: boolean;
 }
 
 function readStoredView(): StoredView | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
-    const { lat, lng, date, minutes } = JSON.parse(raw);
+    const { lat, lng, date, minutes, shadows } = JSON.parse(raw);
     if (!isValidLatLng(lat, lng)) return null;
     return {
       lat,
       lng,
       date: typeof date === "string" ? date : undefined,
       minutes: Number.isInteger(minutes) && minutes >= 0 && minutes <= 1439 ? minutes : undefined,
+      shadows: typeof shadows === "boolean" ? shadows : undefined,
     };
   } catch {
     return null;
@@ -109,7 +112,13 @@ function persistViewState(): void {
   window.history.replaceState(null, "", url);
   localStorage.setItem(
     STORAGE_KEY,
-    JSON.stringify({ lat: center.lat, lng: center.lng, date: datePicker.value, minutes: Number(hourPicker.value) }),
+    JSON.stringify({
+      lat: center.lat,
+      lng: center.lng,
+      date: datePicker.value,
+      minutes: Number(hourPicker.value),
+      shadows: shadowsCheckbox.checked,
+    }),
   );
 }
 
@@ -255,10 +264,18 @@ function applyMinutes(minutes: number): void {
   render();
 }
 
-/** Jump the time slider to the given instant (in `timeZone`) and re-render. */
-function jumpToTime(time: Date | null, timeZone: string): void {
+/**
+ * Nudge applied when jumping to sunrise (+) or sunset (−), so the sun sits just
+ * above the horizon and the beams are actually visible on the map, instead of
+ * landing exactly on the below-horizon rise/set instant.
+ */
+const SUN_EVENT_NUDGE_MINUTES = 15;
+
+/** Jump the time slider to the given instant (in `timeZone`), optionally nudged, and re-render. */
+function jumpToTime(time: Date | null, timeZone: string, nudgeMinutes = 0): void {
   if (!time || Number.isNaN(time.getTime())) return;
-  applyMinutes(utcToZonedMinutesOfDay(time, timeZone));
+  const minutes = utcToZonedMinutesOfDay(time, timeZone) + nudgeMinutes;
+  applyMinutes(Math.max(0, Math.min(Number(hourPicker.max), minutes)));
 }
 
 function render(): void {
@@ -281,7 +298,9 @@ function render(): void {
 
   renderSunBeams(azimuthDeg, altitudeDeg);
 
-  const obstruction = findObstruction(center.lat, center.lng, azimuthDeg, altitudeDeg, getCachedBuildings());
+  const obstruction = shadowsCheckbox.checked
+    ? findObstruction(center.lat, center.lng, azimuthDeg, altitudeDeg, getCachedBuildings())
+    : null;
   beamLines.forEach((line) => line.classList.toggle("blocked", obstruction !== null));
 
   if (obstruction) {
@@ -310,6 +329,8 @@ datePicker.value = queryDate ?? storedView?.date ?? formatZonedDateInput(now, in
 const initialMinutes = storedView?.minutes ?? utcToZonedMinutesOfDay(now, initialTimeZone);
 hourPicker.value = String(initialMinutes);
 hourValue.textContent = minutesToLabel(initialMinutes);
+// Building shadows are experimental (BETA): off unless the user opted in before.
+shadowsCheckbox.checked = storedView?.shadows ?? false;
 
 datePicker.addEventListener("input", () => {
   playback.stop();
@@ -334,23 +355,35 @@ sunriseMarker.addEventListener("click", () => {
   playback.stop();
   const center = map.getCenter();
   const timeZone = resolveTimeZone(center.lat, center.lng);
-  jumpToTime(getSunTimes(selectedDate(timeZone), center.lat, center.lng).sunrise, timeZone);
+  jumpToTime(getSunTimes(selectedDate(timeZone), center.lat, center.lng).sunrise, timeZone, SUN_EVENT_NUDGE_MINUTES);
 });
 sunsetMarker.addEventListener("click", () => {
   playback.stop();
   const center = map.getCenter();
   const timeZone = resolveTimeZone(center.lat, center.lng);
-  jumpToTime(getSunTimes(selectedDate(timeZone), center.lat, center.lng).sunset, timeZone);
+  jumpToTime(getSunTimes(selectedDate(timeZone), center.lat, center.lng).sunset, timeZone, -SUN_EVENT_NUDGE_MINUTES);
 });
 function setBuildingsFetching(fetching: boolean): void {
   buildingsSpinner.classList.toggle("visible", fetching);
 }
 
+shadowsCheckbox.addEventListener("change", () => {
+  persistViewState();
+  scheduleShadowsFetchIfEnabled();
+  render();
+});
+
+/** Fetch neighbor-building data for the current center, if the BETA shadows feature is on. */
+function scheduleShadowsFetchIfEnabled(): void {
+  if (!shadowsCheckbox.checked) return;
+  const center = map.getCenter();
+  scheduleBuildingFetch([center.lat, center.lng], render, setBuildingsFetching);
+}
+
 map.on("move", render);
 map.on("moveend", () => {
   persistViewState();
-  const center = map.getCenter();
-  scheduleBuildingFetch([center.lat, center.lng], render, setBuildingsFetching);
+  scheduleShadowsFetchIfEnabled();
 });
 map.on("resize", render);
 window.addEventListener("resize", render);
@@ -396,8 +429,5 @@ copyLinkBtn.addEventListener("click", async () => {
 });
 
 persistViewState();
-{
-  const center = map.getCenter();
-  scheduleBuildingFetch([center.lat, center.lng], render, setBuildingsFetching);
-}
+scheduleShadowsFetchIfEnabled();
 render();

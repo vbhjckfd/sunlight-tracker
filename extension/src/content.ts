@@ -30,6 +30,12 @@ const MAX_MINUTES = 1439;
 const WATCH_INTERVAL_MS = 200;
 /** A DOM marker this close to the map center at acquisition time is taken to be the complex pin. */
 const MARKER_ACQUIRE_RADIUS_PX = 60;
+/**
+ * Nudge applied when jumping to sunrise (+) or sunset (−), so the sun sits just
+ * above the horizon and the beams are actually visible on the map, instead of
+ * landing exactly on the below-horizon rise/set instant.
+ */
+const SUN_EVENT_NUDGE_MINUTES = 15;
 
 interface ComplexLocation {
   lat: number;
@@ -102,16 +108,18 @@ function altitudeToBeamColor(altitudeDeg: number): string {
 interface StoredView {
   date?: string;
   minutes?: number;
+  shadows?: boolean;
 }
 
 function readStoredView(): StoredView {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return {};
-    const { date, minutes } = JSON.parse(raw);
+    const { date, minutes, shadows } = JSON.parse(raw);
     return {
       date: typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : undefined,
       minutes: Number.isInteger(minutes) && minutes >= 0 && minutes <= MAX_MINUTES ? minutes : undefined,
+      shadows: typeof shadows === "boolean" ? shadows : undefined,
     };
   } catch {
     return {};
@@ -139,6 +147,10 @@ const OVERLAY_HTML = `
     <div class="slt-status-row">
       <span class="slt-status"></span>
       <span class="slt-spinner" title="Fetching building heights"></span>
+      <label class="slt-shadows-toggle" title="Highlight when a neighboring building blocks the sun (experimental)">
+        <input type="checkbox" class="slt-shadows" />
+        🏢 Shadows <span class="slt-beta">BETA</span>
+      </label>
     </div>
     <div class="slt-inputs-row">
       <input type="date" class="slt-date" title="Date" />
@@ -218,6 +230,7 @@ function attach(complex: ComplexLocation, container: HTMLElement): void {
   const noonMarker = root.querySelector<HTMLDivElement>(".slt-noon-marker")!;
   const sunriseMarker = root.querySelector<HTMLButtonElement>(".slt-sunrise-marker")!;
   const sunsetMarker = root.querySelector<HTMLButtonElement>(".slt-sunset-marker")!;
+  const shadowsCheckbox = root.querySelector<HTMLInputElement>(".slt-shadows")!;
 
   const timeZone = resolveTimeZone(complex.lat, complex.lng);
 
@@ -322,7 +335,10 @@ function attach(complex: ComplexLocation, container: HTMLElement): void {
   }
 
   function persistView(): void {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ date: datePicker.value, minutes: Number(hourPicker.value) }));
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ date: datePicker.value, minutes: Number(hourPicker.value), shadows: shadowsCheckbox.checked }),
+    );
   }
 
   function render(): void {
@@ -348,7 +364,9 @@ function attach(complex: ComplexLocation, container: HTMLElement): void {
 
     renderSunBeams(azimuthDeg - bearingDeg, altitudeDeg);
 
-    const obstruction = findObstruction(complex.lat, complex.lng, azimuthDeg, altitudeDeg, getCachedBuildings());
+    const obstruction = shadowsCheckbox.checked
+      ? findObstruction(complex.lat, complex.lng, azimuthDeg, altitudeDeg, getCachedBuildings())
+      : null;
     beamLines.forEach((line) => line.classList.toggle("slt-blocked", obstruction !== null));
 
     statusEl.textContent = obstruction
@@ -363,9 +381,10 @@ function attach(complex: ComplexLocation, container: HTMLElement): void {
     render();
   }
 
-  function jumpToTime(time: Date | null): void {
+  function jumpToTime(time: Date | null, nudgeMinutes = 0): void {
     if (!time || Number.isNaN(time.getTime())) return;
-    applyMinutes(utcToZonedMinutesOfDay(time, timeZone));
+    const minutes = utcToZonedMinutesOfDay(time, timeZone) + nudgeMinutes;
+    applyMinutes(Math.max(0, Math.min(MAX_MINUTES, minutes)));
   }
 
   const playback = createPlayback({
@@ -383,6 +402,8 @@ function attach(complex: ComplexLocation, container: HTMLElement): void {
   const initialMinutes = stored.minutes ?? utcToZonedMinutesOfDay(now, timeZone);
   hourPicker.value = String(initialMinutes);
   hourValue.textContent = minutesToLabel(initialMinutes);
+  // Building shadows are experimental (BETA): off unless the user opted in before.
+  shadowsCheckbox.checked = stored.shadows ?? false;
 
   datePicker.addEventListener("input", () => {
     playback.stop();
@@ -401,18 +422,29 @@ function attach(complex: ComplexLocation, container: HTMLElement): void {
   });
   sunriseMarker.addEventListener("click", () => {
     playback.stop();
-    jumpToTime(getSunTimes(selectedDate(), complex.lat, complex.lng).sunrise);
+    jumpToTime(getSunTimes(selectedDate(), complex.lat, complex.lng).sunrise, SUN_EVENT_NUDGE_MINUTES);
   });
   sunsetMarker.addEventListener("click", () => {
     playback.stop();
-    jumpToTime(getSunTimes(selectedDate(), complex.lat, complex.lng).sunset);
+    jumpToTime(getSunTimes(selectedDate(), complex.lat, complex.lng).sunset, -SUN_EVENT_NUDGE_MINUTES);
   });
 
-  // Neighbor-building heights for the "is the sun blocked" check. One fetch is
-  // enough: the observer is pinned to the complex, it never moves.
-  scheduleBuildingFetch([complex.lat, complex.lng], render, (fetching) => {
-    spinnerEl.classList.toggle("slt-visible", fetching);
+  // Neighbor-building heights for the "is the sun blocked" check (opt-in BETA).
+  // One fetch is enough: the observer is pinned to the complex, it never moves.
+  function scheduleShadowsFetchIfEnabled(): void {
+    if (!shadowsCheckbox.checked) return;
+    scheduleBuildingFetch([complex.lat, complex.lng], render, (fetching) => {
+      spinnerEl.classList.toggle("slt-visible", fetching);
+    });
+  }
+
+  shadowsCheckbox.addEventListener("change", () => {
+    persistView();
+    scheduleShadowsFetchIfEnabled();
+    render();
   });
+
+  scheduleShadowsFetchIfEnabled();
 
   new ResizeObserver(render).observe(container);
 
