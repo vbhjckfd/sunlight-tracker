@@ -13,3 +13,5 @@ extension:
 
 extension-zip: extension
 	@cd extension && zip -FSr ../sunlight-tracker-lun-extension-$$(node -p "require('./manifest.json').version").zip manifest.json content.css dist icons
+	@echo "Zip ready: sunlight-tracker-lun-extension-$$(node -p "require('./extension/manifest.json').version").zip"
+	@echo "Upload at: https://chrome.google.com/webstore/devconsole/"
