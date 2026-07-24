@@ -70,6 +70,37 @@ function findGeoNode(node: unknown): ComplexLocation | null {
   return null;
 }
 
+/** A page title/heading to use as the complex name when structured data lacks one. */
+function getPageName(): string {
+  const heading = document.querySelector("h1")?.textContent?.trim();
+  if (heading) return heading;
+  const title = document.title.trim();
+  return title || "this complex";
+}
+
+/**
+ * Fallback for page types (e.g. `/new/` residential-quarter listings) that omit
+ * JSON-LD geo and instead expose coordinates through an inline
+ * `window.params = { center: [lng, lat], … }` script. Content scripts run in an
+ * isolated world and cannot read the page's real `window.params`, and the host
+ * runs Cloudflare Rocket Loader (which mangles script `type` and defers
+ * execution), so we parse the script's source text out of the DOM directly.
+ */
+function getLocationFromWindowParams(): ComplexLocation | null {
+  for (const script of document.querySelectorAll<HTMLScriptElement>("script")) {
+    const text = script.textContent;
+    if (!text || !text.includes("window.params")) continue;
+    const match = text.match(/center\s*:\s*\[\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*\]/);
+    if (!match) continue;
+    const lng = Number(match[1]);
+    const lat = Number(match[2]);
+    if (Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180) {
+      return { lat, lng, name: getPageName() };
+    }
+  }
+  return null;
+}
+
 /** The complex's coordinates + name from the page's JSON-LD structured data. */
 function getComplexLocation(): ComplexLocation | null {
   for (const script of document.querySelectorAll<HTMLScriptElement>('script[type="application/ld+json"]')) {
@@ -80,7 +111,7 @@ function getComplexLocation(): ComplexLocation | null {
       // Malformed JSON-LD block; keep scanning the rest.
     }
   }
-  return null;
+  return getLocationFromWindowParams();
 }
 
 function findMapContainer(): HTMLElement | null {
