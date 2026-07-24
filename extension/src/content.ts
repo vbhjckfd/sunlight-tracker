@@ -55,6 +55,12 @@ function findGeoNode(node: unknown): ComplexLocation | null {
   }
   if (typeof node !== "object" || node === null) return null;
   const record = node as Record<string, unknown>;
+  // Aggregate listing pages (e.g. lun.ua/sale/…, lun.ua/rent/…) carry an
+  // ItemList of individual apartment offers, each with its own geo — that's
+  // not a single complex, and these pages have no map to attach to at all.
+  const type = record["@type"];
+  const types = Array.isArray(type) ? type : [type];
+  if (types.includes("ItemList")) return null;
   const geo = record.geo as Record<string, unknown> | undefined;
   if (geo && typeof geo === "object") {
     const lat = Number(geo.latitude);
