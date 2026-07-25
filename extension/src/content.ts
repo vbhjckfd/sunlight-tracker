@@ -267,9 +267,17 @@ function attach(complex: ComplexLocation, container: HTMLElement): void {
   if (getComputedStyle(container).position === "static") {
     container.style.position = "relative";
   }
-  if (container.clientWidth < MIN_CONTAINER_PX || container.clientHeight < MIN_CONTAINER_PX) {
-    container.style.minWidth = `${MIN_CONTAINER_PX}px`;
-    container.style.minHeight = `${MIN_CONTAINER_PX}px`;
+  // A too-small container is often clipped by an `overflow: hidden` ancestor
+  // whose own size doesn't derive from the child (e.g. a fixed-height wrapper
+  // LUN only resizes once its map finishes loading). Forcing the child alone
+  // does nothing if a parent still clips it, so walk up while ancestors are
+  // still under-sized, stopping as soon as one is already big enough.
+  let sizeTarget: HTMLElement | null = container;
+  for (let depth = 0; sizeTarget && depth < 4; depth++) {
+    if (sizeTarget.clientWidth >= MIN_CONTAINER_PX && sizeTarget.clientHeight >= MIN_CONTAINER_PX) break;
+    sizeTarget.style.minWidth = `${MIN_CONTAINER_PX}px`;
+    sizeTarget.style.minHeight = `${MIN_CONTAINER_PX}px`;
+    sizeTarget = sizeTarget.parentElement;
   }
 
   const root = document.createElement("div");
