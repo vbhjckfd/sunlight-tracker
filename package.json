@@ -10,7 +10,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "build:extension": "esbuild extension/src/content.ts --bundle --format=iife --alias:tz-lookup=./extension/src/tz-lookup-stub.ts --outfile=extension/dist/content.js",
+    "build:extension": "node scripts/write-extension-commit.mjs && esbuild extension/src/content.ts --bundle --format=iife --alias:tz-lookup=./extension/src/tz-lookup-stub.ts --outfile=extension/dist/content.js",
     "version": "node scripts/bump-extension-version.mjs",
     "deploy": "npm run build && gh-pages -d dist"
   },

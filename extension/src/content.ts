@@ -17,6 +17,7 @@ import {
 import { createPlayback } from "../../src/playback.ts";
 import { scheduleBuildingFetch, getCachedBuildings, findObstruction } from "../../src/buildingShadows.ts";
 import { pickLanguage, getStrings, type Strings } from "../../src/i18n.ts";
+import { SLT_COMMIT } from "./commit.generated.ts";
 
 const STORAGE_KEY = "sunlight-tracker:lun-view";
 const BEAM_COUNT = 4;
@@ -545,6 +546,8 @@ function attach(complex: ComplexLocation, container: HTMLElement): void {
 
   render();
 }
+
+console.log(`[Sunlight Tracker] content.js @ ${SLT_COMMIT}`);
 
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", () => init());
