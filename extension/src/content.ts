@@ -32,6 +32,15 @@ const WATCH_INTERVAL_MS = 200;
 /** A DOM marker this close to the map center at acquisition time is taken to be the complex pin. */
 const MARKER_ACQUIRE_RADIUS_PX = 60;
 /**
+ * Floor applied to the map container's size. LUN's own map can fail to
+ * initialize (e.g. malformed building/marker data server-side) and leave the
+ * container at its collapsed pre-load size, which would squeeze our overlay
+ * down to nothing; this gives it room regardless of whether LUN's map ever
+ * renders. A min, not a fixed size, so it never fights a container that's
+ * already sized correctly.
+ */
+const MIN_CONTAINER_PX = 240;
+/**
  * Nudge applied when jumping to sunrise (+) or sunset (−), so the sun sits just
  * above the horizon and the beams are actually visible on the map, instead of
  * landing exactly on the below-horizon rise/set instant.
@@ -257,6 +266,10 @@ function attach(complex: ComplexLocation, container: HTMLElement): void {
 
   if (getComputedStyle(container).position === "static") {
     container.style.position = "relative";
+  }
+  if (container.clientWidth < MIN_CONTAINER_PX || container.clientHeight < MIN_CONTAINER_PX) {
+    container.style.minWidth = `${MIN_CONTAINER_PX}px`;
+    container.style.minHeight = `${MIN_CONTAINER_PX}px`;
   }
 
   const root = document.createElement("div");
