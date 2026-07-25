@@ -42,6 +42,15 @@ const MARKER_ACQUIRE_RADIUS_PX = 60;
  */
 const MIN_CONTAINER_PX = 240;
 /**
+ * How long init() keeps retrying via MutationObserver when the complex's geo
+ * or the map container isn't in the DOM yet. Some pages populate
+ * `window.params` from a client-side data fetch that lands after our
+ * document_idle run, so a single immediate check can miss it; bounded so
+ * this doesn't run forever on the many lun.ua pages that are never a
+ * complex page at all.
+ */
+const INIT_RETRY_TIMEOUT_MS = 15000;
+/**
  * Nudge applied when jumping to sunrise (+) or sunset (−), so the sun sits just
  * above the horizon and the beams are actually visible on the map, instead of
  * landing exactly on the below-horizon rise/set instant.
@@ -235,22 +244,25 @@ const overlayHtml = (t: Strings): string => `
 
 function init(): void {
   const complex = getComplexLocation();
-  if (!complex) return; // not a building page
-
-  const container = findMapContainer();
-  if (!container) {
-    // The map section may not be in the initial DOM yet; retry when the body changes.
-    const observer = new MutationObserver(() => {
-      if (findMapContainer()) {
-        observer.disconnect();
-        init();
-      }
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
+  const container = complex ? findMapContainer() : null;
+  if (complex && container) {
+    attach(complex, container);
     return;
   }
 
-  attach(complex, container);
+  // Either piece can still be missing because it hasn't landed in the DOM
+  // yet, not because this isn't a complex page — keep watching for both.
+  const observer = new MutationObserver(() => {
+    const c = getComplexLocation();
+    if (!c) return;
+    const el = findMapContainer();
+    if (!el) return;
+    observer.disconnect();
+    clearTimeout(timeoutId);
+    attach(c, el);
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+  const timeoutId = setTimeout(() => observer.disconnect(), INIT_RETRY_TIMEOUT_MS);
 }
 
 function attach(complex: ComplexLocation, container: HTMLElement): void {
