@@ -1,10 +1,11 @@
 /**
- * Sunlight Tracker overlay for LUN.ua building pages.
+ * Sunlight Tracker overlay for LUN.ua and DOM.RIA building pages.
  *
  * Reuses the app's sun/timezone/playback/shadow modules, but instead of owning
  * a Leaflet map it drapes an SVG beam overlay + control bar over the Mapbox GL
- * map LUN renders into `#map-canvas`. The observer is the residential complex
- * itself (coordinates parsed from the page's JSON-LD), not the map center.
+ * map these sites render into their own map container. The observer is the
+ * residential complex itself (coordinates parsed out of the page's own data),
+ * not the map center.
  */
 import { getSunPosition, getSunTimes } from "../../src/sunPosition.ts";
 import {
@@ -126,7 +127,59 @@ function getLocationFromWindowParams(): ComplexLocation | null {
   return null;
 }
 
-/** The complex's coordinates + name from the page's JSON-LD structured data. */
+/**
+ * Slice out a balanced `[...]` array starting at `text[startIdx]` (which must
+ * be the opening bracket), tracking nesting depth so an inner array (e.g.
+ * `osmId`) doesn't end the slice early.
+ */
+function extractBalancedArray(text: string, startIdx: number): string | null {
+  let depth = 0;
+  for (let i = startIdx; i < text.length; i++) {
+    if (text[i] === "[") depth++;
+    else if (text[i] === "]") {
+      depth--;
+      if (depth === 0) return text.slice(startIdx, i + 1);
+    }
+  }
+  return null;
+}
+
+/**
+ * DOM.RIA newbuild-complex pages: geo lives in an inline `window.init=…` blob
+ * (not JSON-LD) under `mapPage.mapData`, a single-element array on a genuine
+ * complex detail page (an array with multiple entries means this is a
+ * listing/search page with several pins, not one complex — skip it, same as
+ * the JSON-LD ItemList exclusion above). Content scripts run in an isolated
+ * world and can't read the page's real `window.init`, so this parses the
+ * script's source text out of the DOM directly, same approach as the lun.ua
+ * `window.params` fallback below.
+ */
+function getLocationFromWindowInit(): ComplexLocation | null {
+  for (const script of document.querySelectorAll<HTMLScriptElement>("script")) {
+    const text = script.textContent;
+    if (!text || !text.includes("window.init=")) continue;
+    const key = '"mapData":[';
+    const keyIdx = text.indexOf(key);
+    if (keyIdx === -1) continue;
+    const arrayText = extractBalancedArray(text, keyIdx + key.length - 1);
+    if (!arrayText) continue;
+    try {
+      const mapData = JSON.parse(arrayText);
+      if (!Array.isArray(mapData) || mapData.length !== 1) continue;
+      const [entry] = mapData;
+      const lat = Number(entry?.latitude);
+      const lng = Number(entry?.longitude);
+      if (Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180) {
+        return { lat, lng, name: typeof entry.name === "string" && entry.name ? entry.name : getPageName() };
+      }
+    } catch {
+      // Malformed/unexpected shape; keep scanning other scripts.
+    }
+  }
+  return null;
+}
+
+/** The complex's coordinates + name, from whichever data shape the host page uses. */
 function getComplexLocation(): ComplexLocation | null {
   for (const script of document.querySelectorAll<HTMLScriptElement>('script[type="application/ld+json"]')) {
     try {
@@ -136,11 +189,11 @@ function getComplexLocation(): ComplexLocation | null {
       // Malformed JSON-LD block; keep scanning the rest.
     }
   }
-  return getLocationFromWindowParams();
+  return getLocationFromWindowParams() ?? getLocationFromWindowInit();
 }
 
 function findMapContainer(): HTMLElement | null {
-  return document.querySelector<HTMLElement>("#map-canvas, .BuildingLocation-map-canvas");
+  return document.querySelector<HTMLElement>("#map-canvas, .BuildingLocation-map-canvas, #map");
 }
 
 function minutesToLabel(minutes: number): string {
@@ -252,17 +305,25 @@ function init(): void {
 
   // Either piece can still be missing because it hasn't landed in the DOM
   // yet, not because this isn't a complex page — keep watching for both.
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
   const observer = new MutationObserver(() => {
     const c = getComplexLocation();
     if (!c) return;
+    if (timeoutId !== undefined) {
+      // Confirmed complex page: stop racing the clock. The map container can
+      // still be legitimately missing for much longer than the timeout — e.g.
+      // DOM.RIA only mounts its map once the section is scrolled into view —
+      // so from here on just wait for it, however long that takes.
+      clearTimeout(timeoutId);
+      timeoutId = undefined;
+    }
     const el = findMapContainer();
     if (!el) return;
     observer.disconnect();
-    clearTimeout(timeoutId);
     attach(c, el);
   });
   observer.observe(document.body, { childList: true, subtree: true });
-  const timeoutId = setTimeout(() => observer.disconnect(), INIT_RETRY_TIMEOUT_MS);
+  timeoutId = setTimeout(() => observer.disconnect(), INIT_RETRY_TIMEOUT_MS);
 }
 
 function attach(complex: ComplexLocation, container: HTMLElement): void {

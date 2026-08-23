@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Sunlight Tracker for LUN.ua",
-  "version": "1.0.5",
-  "description": "Sun direction, sunrise/sunset times and building-shadow checks overlaid on LUN.ua residential complex maps.",
+  "version": "1.0.6",
+  "description": "Sun direction, sunrise/sunset times and building-shadow checks overlaid on LUN.ua and DOM.RIA residential complex maps.",
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
@@ -12,7 +12,9 @@
     {
       "matches": [
         "https://lun.ua/*",
-        "https://*.lun.ua/*"
+        "https://*.lun.ua/*",
+        "https://dom.ria.com/*",
+        "https://*.dom.ria.com/*"
       ],
       "js": [
         "dist/content.js"
