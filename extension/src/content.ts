@@ -193,7 +193,9 @@ function getComplexLocation(): ComplexLocation | null {
 }
 
 function findMapContainer(): HTMLElement | null {
-  return document.querySelector<HTMLElement>("#map-canvas, .BuildingLocation-map-canvas, #map");
+  return document.querySelector<HTMLElement>(
+    "#map-canvas, .BuildingLocation-map-canvas, #map, #mapContainer",
+  );
 }
 
 function minutesToLabel(minutes: number): string {
